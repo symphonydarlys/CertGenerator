@@ -197,9 +197,7 @@ public class CertGenerator {
   }
 
   private static X509Certificate createUserCert(Certificate[] caChain, PrivateKey caKey, PublicKey userKey,
-      String userRef)
-      throws CertificateException, CertIOException, NoSuchAlgorithmException,
-      OperatorCreationException {
+      String userRef) throws CertificateException, CertIOException, NoSuchAlgorithmException, OperatorCreationException {
     Security.addProvider(new BouncyCastleProvider());
 
     X509Certificate caCert = (X509Certificate) caChain[0];
@@ -268,7 +266,7 @@ public class CertGenerator {
       store.store(fOut, keyStorePassword.toCharArray());
     }
 
-    try (Writer writer = new PrintWriter(Paths.get(outDir, commonName + "-key.p12").toFile())) {
+    try (Writer writer = new PrintWriter(Paths.get(outDir, commonName + "-cert.pem").toFile())) {
       writer.write("-----BEGIN CERTIFICATE-----\n");
       writer.write(DatatypeConverter.printBase64Binary(chain[0].getEncoded()).replaceAll("(.{64})", "$1\n"));
       writer.write("\n-----END CERTIFICATE-----\n");
