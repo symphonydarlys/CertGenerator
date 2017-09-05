@@ -29,6 +29,8 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.Writer;
 import java.math.BigInteger;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -62,16 +64,22 @@ public class CertGenerator {
   private static String caKeyFile = "/home/lukasz/Projects/atlas/symphony/global/certs/keys/int-key.pem";
   private static String caKeyPassword = "changeit";
 
-  private static String userAccountName = "agentservice";
-  private static String userCertFile = "/tmp/" + userAccountName + ".p12";
+  private static String userAccountName = "test-app";
+  private static String userCertDir = "/tmp/";
   private static String userCertPassword = "changeit";
 
   private static final Date VALID_FROM = new Date(System.currentTimeMillis() - 1000L * 60 * 60 * 24 * 30);
   private static final Date VALID_TO = new Date(System.currentTimeMillis() + (1000L * 60 * 60 * 24 * 365 * 10));
 
+  private static final String BEGIN_CERTIFICATE = "-----BEGIN CERTIFICATE-----\n";
+  private static final String END_CERTIFICATE = "\n-----END CERTIFICATE-----\n";
+
   public static void main(String[] args) throws Exception {
 
     parseOptions(args);
+
+    System.out.println(String.format("Generating certificate for %s, using CA cert %s, CA key %s, writing to %s",
+        userAccountName, caCertFile, caKeyFile, userCertDir));
 
     KeyPair keys = generateKeys();
     Certificate[] certChain = createCertChain(Paths.get(caCertFile).toUri(),
@@ -80,7 +88,7 @@ public class CertGenerator {
         caKeyPassword,
         userAccountName,
         keys);
-    writeKeystore(Paths.get(userCertFile).toUri(),
+    writeKeystore(userCertDir,
         userCertPassword,
         certChain,
         userAccountName,
@@ -90,7 +98,7 @@ public class CertGenerator {
   private static void usage() {
     System.out.println("Usage: CertGenerator -caCertFile=int-cert.p12 -caCertPassword=changeit " +
         "-caKeyFile=int-key.pem -caKeyPassword=changeit " +
-        "-userAccountName=bot.user1 -userCertFile=/tmp/bot.user1.p12 -userCertPassword=changeit");
+        "-userAccountName=bot.user1 -userCertDir=/tmp/ -userCertPassword=changeit");
   }
 
   private static void parseOptions(String[] args) {
@@ -117,8 +125,8 @@ public class CertGenerator {
         case "-userAccountName":
           userAccountName = opt[1];
           break;
-        case "-userCertFile":
-          userCertFile = opt[1];
+        case "-userCertDir":
+          userCertDir = opt[1];
           break;
         case "-userCertPassword":
           userCertPassword = opt[1];
@@ -241,35 +249,35 @@ public class CertGenerator {
     return cert;
   }
 
-  private static void writeKeystore(URI keyStoreFile, String keyStorePassword, Certificate[] chain, String userRef,
+  private static void writeKeystore(String outDir, String keyStorePassword, Certificate[] chain, String commonName,
       KeyPair keys)
       throws NoSuchAlgorithmException, NoSuchProviderException, KeyStoreException, IOException,
       CertificateException {
     PKCS12BagAttributeCarrier bagAttr = (PKCS12BagAttributeCarrier) keys.getPrivate();
     JcaX509ExtensionUtils extUtils = new JcaX509ExtensionUtils();
 
-    bagAttr.setBagAttribute(PKCSObjectIdentifiers.pkcs_9_at_friendlyName, new DERBMPString(userRef));
+    bagAttr.setBagAttribute(PKCSObjectIdentifiers.pkcs_9_at_friendlyName, new DERBMPString(commonName));
     bagAttr.setBagAttribute(PKCSObjectIdentifiers.pkcs_9_at_localKeyId,
         extUtils.createSubjectKeyIdentifier(keys.getPublic()));
 
     KeyStore store = KeyStore.getInstance("PKCS12", "BC");
     store.load(null, null);
-    store.setKeyEntry(userRef, keys.getPrivate(), null, chain);
+    store.setKeyEntry(commonName, keys.getPrivate(), null, chain);
 
-    FileOutputStream fOut = new FileOutputStream(keyStoreFile.getPath());
-    try {
+    try (FileOutputStream fOut = new FileOutputStream(Paths.get(outDir, commonName + ".p12").toFile())) {
       store.store(fOut, keyStorePassword.toCharArray());
-    } finally {
-      fOut.close();
+    }
+
+    try (Writer writer = new PrintWriter(Paths.get(outDir, commonName + "-key.p12").toFile())) {
+      writer.write("-----BEGIN CERTIFICATE-----\n");
+      writer.write(DatatypeConverter.printBase64Binary(chain[0].getEncoded()).replaceAll("(.{64})", "$1\n"));
+      writer.write("\n-----END CERTIFICATE-----\n");
     }
   }
 
   private static X509Certificate pemToX509(String pem) throws CertificateException {
-    final String BEGIN_DELIMITER = "-----BEGIN CERTIFICATE-----";
-    final String END_DELIMITER = "-----END CERTIFICATE-----";
-
-    String[] tokens = pem.split(BEGIN_DELIMITER);
-    tokens = tokens[1].split(END_DELIMITER);
+    String[] tokens = pem.split(BEGIN_CERTIFICATE.trim());
+    tokens = tokens[1].split(END_CERTIFICATE.trim());
     byte[] certBytes = DatatypeConverter.parseBase64Binary(tokens[0]);
 
     CertificateFactory factory = CertificateFactory.getInstance("X.509");
